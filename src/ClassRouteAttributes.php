@@ -5,6 +5,7 @@ namespace Spatie\RouteAttributes;
 use ReflectionClass;
 use Spatie\RouteAttributes\Attributes\Middleware;
 use Spatie\RouteAttributes\Attributes\Prefix;
+use Spatie\RouteAttributes\Attributes\ResourceController;
 use Spatie\RouteAttributes\Attributes\RouteAttribute;
 
 class ClassRouteAttributes
@@ -34,6 +35,11 @@ class ClassRouteAttributes
         }
 
         return $attribute->middleware;
+    }
+
+    public function resource(): ?ResourceController
+    {
+        return $this->getAttribute(ResourceController::class);
     }
 
     protected function getAttribute(string $attributeClass): ?RouteAttribute

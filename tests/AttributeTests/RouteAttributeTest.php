@@ -62,11 +62,12 @@ class RouteAttributeTest extends TestCase
     {
         $this->routeRegistrar->registerClass(InvokableRouteGetTestController::class);
 
+        //dd($this->getRouteCollection()->getRoutes()[0]);
         $this
             ->assertRegisteredRoutesCount(1)
             ->assertRouteRegistered(
             controller: InvokableRouteGetTestController::class,
-            controllerMethod: '__invoke',
+            controllerMethod: InvokableRouteGetTestController::class,
             uri: 'my-invokable-route'
         );
     }

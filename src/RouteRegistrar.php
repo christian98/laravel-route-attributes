@@ -2,13 +2,17 @@
 
 namespace Spatie\RouteAttributes;
 
+use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
+use Illuminate\Routing\RouteRegistrar as LaravelRouteRegistrar;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use ReflectionAttribute;
 use ReflectionClass;
-use Spatie\RouteAttributes\Attributes\Route;
-use Spatie\RouteAttributes\Attributes\RouteAttribute;
+use Spatie\RouteAttributes\Attributes\Contracts\MethodAttributeRouteCreate;
+use Spatie\RouteAttributes\Attributes\Contracts\RouteClassAttribute;
+use Spatie\RouteAttributes\Attributes\Contracts\RouteClassGroupAttribute;
+use Spatie\RouteAttributes\Attributes\Contracts\MethodAttributeRouteUpdate;
 use SplFileInfo;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -88,40 +92,63 @@ class RouteRegistrar
 
         $class = new ReflectionClass($className);
 
-        $classRouteAttributes = new ClassRouteAttributes($class);
+        $classAttributes = $class->getAttributes(RouteClassGroupAttribute::class, ReflectionAttribute::IS_INSTANCEOF);
 
-        foreach ($class->getMethods() as $method) {
-            $attributes = $method->getAttributes(RouteAttribute::class, ReflectionAttribute::IS_INSTANCEOF);
-
-            foreach ($attributes as $attribute) {
+        if(!count($classAttributes)) {
+            // no group
+            $this->processAttributesForMethods($class);
+        } else {
+            // group
+            /** @var LaravelRouteRegistrar|null $classRouteRegistrar */
+            $classRouteRegistrar = null;
+            foreach ($classAttributes as $classAttribute) {
                 try {
-                    $attributeClass = $attribute->newInstance();
+                    /** @var RouteClassGroupAttribute $classAttributeInstance */
+                    $classAttributeInstance = $classAttribute->newInstance();
+                    $classRouteRegistrar = $classAttributeInstance->runRouteClassGroupAttribute($class, $this->router, $classRouteRegistrar);
+                } catch(Throwable) {
+                    continue;
+                }
+            }
+            $classRouteRegistrar->group(function() use ($class) {
+                $this->processAttributesForMethods($class);
+            });
+        }
+
+        foreach ($class->getAttributes(RouteClassAttribute::class, ReflectionAttribute::IS_INSTANCEOF) as $classAttribute) {
+            /** @var RouteClassAttribute $classAttributeInstance */
+            $classAttributeInstance = $classAttribute->newInstance();
+            $classAttributeInstance->runRouteClassAttribute($class, $this->router);
+        }
+    }
+
+    private function processAttributesForMethods(ReflectionClass $class)
+    {
+        foreach ($class->getMethods() as $method) {
+            /** @var Route[] $routes */
+            $routes = [];
+
+            $createAttributes = $method->getAttributes(MethodAttributeRouteCreate::class, ReflectionAttribute::IS_INSTANCEOF);
+            foreach ($createAttributes as $createAttribute){
+                try {
+                    /** @var MethodAttributeRouteCreate $attributeClass */
+                    $attributeClass = $createAttribute->newInstance();
+                    $routes[] = $attributeClass->runMethodAttributeRouteCreate($class, $method, $this->router);
                 } catch (Throwable) {
                     continue;
                 }
+            }
 
-                if ($attributeClass instanceof Route) {
-
-                    $httpMethod = $attributeClass->method;
-
-                    $action = $attributeClass->method === '__invoke'
-                        ? $class->getName()
-                        : [$class->getName(), $method->getName()];
-
-                    /** @var \Illuminate\Routing\Route $route */
-                    $route = $this->router->$httpMethod($attributeClass->uri, $action);
-
-                    $route
-                        ->name($attributeClass->name);
-
-                    if ($prefix = $classRouteAttributes->prefix()) {
-                        $route->prefix($prefix);
+            $updateAttributes = $method->getAttributes(MethodAttributeRouteUpdate::class, ReflectionAttribute::IS_INSTANCEOF);
+            foreach ($routes as $route) {
+                foreach ($updateAttributes as $updateAttribute) {
+                    try {
+                        /** @var MethodAttributeRouteUpdate $attributeClass */
+                        $attributeClass = $updateAttribute->newInstance();
+                        $route = $attributeClass->runMethodAttributeRouteUpdate($class, $method, $this->router, $route) ?? $route;
+                    } catch (Throwable) {
+                        continue;
                     }
-
-                    $classMiddleware = $classRouteAttributes->middleware();
-                    $methodMiddleware = $attributeClass->middleware;
-
-                    $route->middleware([...$classMiddleware, ...$methodMiddleware]);
                 }
             }
         }
